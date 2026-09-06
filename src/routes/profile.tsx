@@ -19,7 +19,7 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const [profile, setProfileState] = useState(getFarmProfile());
   const [farmerName, setFarmerName] = useState(profile.name || "Farmer Kofi");
-  const [farmName, setFarmName] = useState(profile.farmName || "Green Aqua Farm");
+  const [farmName, setFarmName] = useState(profile.farmName || "My Fish Farm");
   const [farmerPhone, setFarmerPhone] = useState(profile.phone || "+233 248785807");
   const [location, setLocation] = useState(profile.location || "Accra, Ghana");
   const [primaryGoal, setPrimaryGoal] = useState(profile.primaryGoal || "Increase Yield & Growth Rate");

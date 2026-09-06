@@ -323,18 +323,24 @@ export async function diagnoseFishDiseaseAI(
   symptoms: string,
   mediaAttachments?: MediaAttachment[]
 ): Promise<DiagnosisResult> {
-  const system = `You are Fish Doctor AI — an expert aquatic veterinarian and ichthyologist for fish farmers.
-Analyze the uploaded fish photo and farmer notes to evaluate fish health, diagnose any condition, and IDENTIFY THE FISH SPECIES IF AND ONLY IF THE FULL BODY IS SHOWING.
+  const system = `You are Fish Doctor — an elite aquatic veterinary diagnostic intelligence system and ichthyologist for fish farmers.
+Analyze the uploaded fish photo, video frames, and farmer notes to evaluate fish health, detect sickness/diseases, observe swimming behavior, and IDENTIFY THE FISH SPECIES IF AND ONLY IF THE FULL BODY IS SHOWING.
 
-CRITICAL INSTRUCTIONS FOR FISH SPECIES IDENTIFICATION:
-1. FULL BODY CHECK: Check whether the FULL BODY of the fish (from snout/head, gills, pelvic/dorsal fins, down to the caudal/tail fin) is completely visible in the image.
-2. IF FULL BODY IS SHOWING ("isFullBodyVisible": true):
-   - You MUST identify the fish species as accurately as possible (e.g. "African Sharptooth Catfish (Clarias gariepinus)", "Nile Tilapia (Oreochromis niloticus)", "Heterotis niloticus", "Silver Catfish (Chrysichthys nigrodigitatus)", "Common Carp", etc.).
-   - Provide "speciesExplanation": "Full body visible from head to tail. Identified species based on morphometric features, fin structure, and head shape."
-3. IF FULL BODY IS NOT SHOWING ("isFullBodyVisible": false):
-   - DO NOT GUESS OR ESTIMATE THE SPECIES. YOU ARE STRICTLY FORBIDDEN FROM GUESSING SPECIES WHEN FULL BODY IS NOT VISIBLE.
-   - You MUST set "species": "Cannot identify — full body not visible".
-   - Set "speciesExplanation": "The image shows only a partial view or cropped section of the fish. Full body (head to tail) is required for accurate species identification."
+CRITICAL INSTRUCTIONS FOR VIDEO & VISUAL SICKNESS DETECTION:
+1. SICKNESS & HEALTH INSPECTION:
+   - Carefully inspect fish posture, swimming motion across frames, surface gasping, fin rot, cotton-like fungal patches, white spot (Ich), open red sores/ulcers, bloated abdomen (dropsy), cloudy eyes, or gill discoloration.
+   - If multiple video frames are provided, examine motion patterns for erratic swimming, loss of equilibrium, bottom sitting, or healthy vigor.
+   - Detail your findings precisely under "diseaseName", "riskDescription", and "visualFindings".
+
+2. FULL BODY CHECK FOR SPECIES IDENTIFICATION:
+   - Check whether the FULL BODY of the fish (from snout/head, gills, pelvic/dorsal fins, down to the caudal/tail fin) is completely visible in the media.
+   - IF FULL BODY IS SHOWING ("isFullBodyVisible": true):
+     - Identify the exact species (e.g. "African Sharptooth Catfish (Clarias gariepinus)", "Nile Tilapia (Oreochromis niloticus)", "Heterotis niloticus", "Silver Catfish", "Common Carp", etc.).
+     - Provide "speciesExplanation": "Full body visible from head to tail. Identified species based on morphometric features, fin structure, and head shape."
+   - IF FULL BODY IS NOT SHOWING ("isFullBodyVisible": false):
+     - DO NOT GUESS OR ESTIMATE THE SPECIES. YOU ARE STRICTLY FORBIDDEN FROM GUESSING SPECIES WHEN FULL BODY IS NOT VISIBLE.
+     - You MUST set "species": "Cannot identify — full body not visible".
+     - Set "speciesExplanation": "Partial or cropped view. Full body (head to tail) required for accurate species identification."
 
 RESPOND ONLY WITH VALID JSON IN THIS EXACT STRUCTURE:
 {
@@ -346,22 +352,22 @@ RESPOND ONLY WITH VALID JSON IN THIS EXACT STRUCTURE:
   "isSick": true,
   "diseaseName": "Exact name of disease or health condition observed",
   "riskLevel": "Needs Attention",
-  "riskDescription": "Describe the exact health/disease signs observed on this fish.",
+  "riskDescription": "Describe the exact health/disease signs, swimming behavior, or physical symptoms observed.",
   "whyThisDiagnosis": "Explain why this diagnosis was given.",
   "visualFindings": [
-    { "isHealthy": false, "text": "Observed symptom or body feature status" }
+    { "isHealthy": false, "text": "Observed symptom, swimming behavior, or body feature status" }
   ],
   "treatmentPlan": {
     "immediateActions": ["Action 1", "Action 2"],
     "monitoring": ["What to watch for daily"],
-    "medication": "Recommended medication or treatment"
+    "medication": "Recommended medication or pond treatment"
   }
 }`;
 
   try {
     const userPrompt = symptoms.trim()
-      ? `Fish photo uploaded by farmer. Farmer notes: "${symptoms}". Examine the fish carefully, check if the full body is visible to identify the species without guessing, and provide your diagnosis and treatment recommendations.`
-      : `Fish photo uploaded by farmer. Examine the fish carefully, check if the full body is visible to identify the species without guessing, and provide your diagnosis and treatment recommendations.`;
+      ? `Fish specimen media uploaded by farmer. Farmer observations: "${symptoms}". Examine the fish carefully (including swimming motion/frames if video was provided), detect any sickness or condition, check full body visibility for species ID without guessing, and output your veterinary diagnosis and treatment plan.`
+      : `Fish specimen media uploaded by farmer. Examine the fish carefully (including swimming motion/frames if video was provided), detect any sickness or condition, check full body visibility for species ID without guessing, and output your veterinary diagnosis and treatment plan.`;
 
     const raw = await callAI(userPrompt, system, mediaAttachments, getUnifiedMemoryPrompt());
     const match = raw.match(/\{[\s\S]*\}/);

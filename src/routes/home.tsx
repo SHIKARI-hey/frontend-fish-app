@@ -44,7 +44,7 @@ const quickActions: { img: string; label: string; tint: string; to?: string }[] 
 export function HomePage() {
   const { language } = useLanguage();
   const [userName, setUserName] = useState("");
-  const [farmName, setFarmName] = useState("Green Aqua Farm");
+  const [farmName, setFarmName] = useState("My Fish Farm");
   const [userProfilePic, setUserProfilePic] = useState<string | null>(null);
   const [pondsCount, setPondsCount] = useState<number>(0);
   const [totalFish, setTotalFish] = useState<number>(0);

@@ -77,7 +77,7 @@ export function OnboardingPage() {
   const handleFinish = () => {
     try {
       const finalFishType = fishType === "Other" && customFishName.trim() ? customFishName.trim() : fishType;
-      const finalFarmName = farmName.trim() || "Green Aqua Farm";
+      const finalFarmName = farmName.trim() || "My Fish Farm";
       
       const profile = getFarmProfile();
       profile.farmName = finalFarmName;
@@ -182,7 +182,7 @@ export function OnboardingPage() {
                     required
                     value={farmName}
                     onChange={(e) => setFarmName(e.target.value)}
-                    placeholder="e.g. Kofi's Green Aqua Farm"
+                    placeholder="e.g. Kofi's Fresh Fish Farm"
                     className="w-full h-11 px-3 text-xs font-bold text-gray-900 bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-[#0F6236]/20 shadow-xs"
                   />
                 </div>

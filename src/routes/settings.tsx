@@ -26,7 +26,7 @@ export function SettingsPage() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [offlineMode, setOfflineMode] = useState(false);
   const [farmerName, setFarmerName] = useState("Farmer Kofi");
-  const [farmName, setFarmName] = useState("Green Aqua Farm");
+  const [farmName, setFarmName] = useState("My Fish Farm");
 
   useEffect(() => {
     const savedName = localStorage.getItem("user_name");

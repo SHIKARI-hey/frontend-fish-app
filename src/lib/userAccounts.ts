@@ -1,3 +1,5 @@
+import { recordUserLogin } from "./supabase";
+
 export interface UserAccount {
   id: string;
   name: string;
@@ -40,7 +42,8 @@ export function findAccountByIdentifier(identifier: string): UserAccount | undef
   return accounts.find(
     (acc) =>
       (acc.email && acc.email.toLowerCase() === cleanId) ||
-      (acc.phone && (acc.phone || "").toString().replace(/\s+/g, "").toLowerCase().includes(cleanId))
+      (acc.phone && acc.phone.replace(/\s+/g, "") === cleanId) ||
+      acc.name.toLowerCase() === cleanId
   );
 }
 
@@ -48,35 +51,52 @@ export function registerOrLoginAccount(details: {
   name: string;
   phone?: string;
   email?: string;
-  isGoogle?: boolean;
   farmName?: string;
+  isGoogle?: boolean;
 }): { account: UserAccount; isExisting: boolean } {
   const accounts = getRegisteredAccounts();
-
-  // Stable email for Google users
-  const cleanEmail = details.email?.toLowerCase().trim();
-  const cleanPhone = (details.phone || "").toString().replace(/\s+/g, "");
-
-  let existing = accounts.find((acc) => {
-    if (cleanEmail && acc.email && acc.email.toLowerCase() === cleanEmail) return true;
-    if (cleanPhone && acc.phone && (acc.phone || "").toString().replace(/\s+/g, "") === cleanPhone) return true;
-    // Match existing Google user account if Google sign in is used
-    if (details.isGoogle && acc.isGoogleSignedIn) return true;
-    return false;
-  });
-
   const now = new Date().toISOString();
 
-  // Check if onboarding was completed globally in localStorage or on any existing Google account
-  const isGlobalOnboardingDone = 
-    localStorage.getItem("user_onboarding_completed") === "true" || 
-    (details.isGoogle && accounts.some(a => a.isGoogleSignedIn && a.onboardingCompleted));
+  const isGlobalOnboardingDone = typeof window !== "undefined" && localStorage.getItem("user_onboarding_completed") === "true";
 
-  if (existing) {
+  // Check if account already exists
+  let existingIndex = -1;
+  if (details.email) {
+    existingIndex = accounts.findIndex(
+      (a) => a.email && a.email.toLowerCase() === (details.email || "").toLowerCase()
+    );
+  }
+  if (existingIndex === -1 && details.phone) {
+    existingIndex = accounts.findIndex(
+      (a) => a.phone && a.phone.replace(/\s+/g, "") === (details.phone || "").replace(/\s+/g, "")
+    );
+  }
+  if (existingIndex === -1 && details.name && !details.isGoogle) {
+    existingIndex = accounts.findIndex((a) => a.name.toLowerCase() === details.name.toLowerCase());
+  }
+
+  // Trigger real-time tracking to Supabase & Central Server
+  try {
+    const profilePic = typeof window !== "undefined" ? localStorage.getItem("user_profile_image") || undefined : undefined;
+    recordUserLogin({
+      email: details.email,
+      name: details.name,
+      avatar_url: profilePic,
+      auth_provider: details.isGoogle ? "google" : (details.email ? "email" : "phone"),
+      farm_name: details.farmName || "My Fish Farm",
+    }).catch(() => {});
+  } catch {}
+
+  if (existingIndex >= 0) {
+    const existing = accounts[existingIndex];
     existing.lastLoginAt = now;
-    if (details.name && details.name !== "Google User") existing.name = details.name;
-    if (details.farmName) existing.farmName = details.farmName;
     if (details.isGoogle) existing.isGoogleSignedIn = true;
+    if (details.name && details.name !== "Farmer" && details.name !== "Google Farmer") {
+      existing.name = details.name;
+    }
+    if (details.phone && !existing.phone) existing.phone = details.phone;
+    if (details.email && !existing.email) existing.email = details.email;
+    if (details.farmName && !existing.farmName) existing.farmName = details.farmName;
     
     // Always preserve onboarding completed status if it was completed before
     if (isGlobalOnboardingDone || existing.onboardingCompleted) {
@@ -103,7 +123,7 @@ export function registerOrLoginAccount(details: {
       name: details.name || "Farmer",
       phone: details.phone,
       email: details.email || (details.isGoogle ? "google.farmer@gmail.com" : undefined),
-      farmName: details.farmName || "Green Aqua Farm",
+      farmName: details.farmName || "My Fish Farm",
       isGoogleSignedIn: !!details.isGoogle,
       // If it's a Google sign in or global onboarding was done, mark completed so they go straight to dashboard
       onboardingCompleted: Boolean(details.isGoogle || isGlobalOnboardingDone),
@@ -153,7 +173,7 @@ export function markCurrentAccountOnboardingComplete(farmName?: string): void {
       name: currentName || "Farmer",
       phone: currentPhone || undefined,
       email: currentEmail || undefined,
-      farmName: farmName || "Green Aqua Farm",
+      farmName: farmName || "My Fish Farm",
       isGoogleSignedIn: localStorage.getItem("user_google_signed_in") === "true",
       onboardingCompleted: true,
       createdAt: new Date().toISOString(),

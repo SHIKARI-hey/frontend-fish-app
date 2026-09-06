@@ -109,7 +109,7 @@ export function getUnifiedMemoryPrompt(): string {
   const primaryGoal = profile.primaryGoal || localStorage.getItem("user_primary_goal") || "Increase Yield & Growth Rate";
 
   let summary = `FARM OWNER: ${profile.name}\n`;
-  summary += `FARM NAME: ${profile.farmName || "Green Aqua Farm"}\n`;
+  summary += `FARM NAME: ${profile.farmName || "My Fish Farm"}\n`;
   summary += `LOCATION: ${profile.location}\n`;
   summary += `PRIMARY FARM GOAL & AI MANDATE: The farmer's primary goal is "${primaryGoal}". You MUST prioritize achieving this primary goal in every diagnosis, calculation, and advice.\n`;
   summary += `TARGET HARVEST WEIGHT: ${profile.targetWeightKg} kg\n`;

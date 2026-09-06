@@ -152,6 +152,12 @@ export function AssistantPage() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Dismiss keyboard on mobile immediately upon sending
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     const trimmedInput = input.trim();
     if (!trimmedInput && !attachment) return;
 
@@ -356,6 +362,11 @@ export function AssistantPage() {
         <input
           type="text"
           value={input}
+          onFocus={(e) => {
+            setTimeout(() => {
+              e.currentTarget.scrollIntoView({ behavior: "smooth", block: "center" });
+            }, 150);
+          }}
           onChange={(e) => setInput(e.target.value)}
           placeholder={`Ask AI Doctor about fish diseases, water pH...`}
           className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2.5 text-xs font-medium text-gray-900 outline-none focus:ring-2 focus:ring-[#0F6236]/20"

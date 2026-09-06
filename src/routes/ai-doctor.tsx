@@ -5,7 +5,7 @@ import {
   ShieldCheck, 
   ChevronDown, ChevronUp, Droplets, Activity, Pill,
   AlertTriangle, Info, Share2, Printer, CheckCircle2, XCircle,
-  Clock, Trash2, History
+  Clock, Trash2, History, Video, Film
 } from "lucide-react";
 import { BottomNav, PhoneFrame } from "@/components/BottomNav";
 import farmerImg from "@/assets/farmer.jpg";
@@ -52,7 +52,55 @@ export function DiseasePage() {
   } | null>(null);
 
   const [uploadedMedia, setUploadedMedia] = useState<{ name: string; type: string; mimeType: string; url: string } | null>(null);
+  const [extractedFrames, setExtractedFrames] = useState<string[]>([]);
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const notesInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Extract 3 keyframes across uploaded video duration to analyze swimming motion and sickness
+  const extractFramesFromVideo = async (videoUrl: string): Promise<string[]> => {
+    return new Promise((resolve) => {
+      if (typeof document === "undefined") return resolve([]);
+      const video = document.createElement("video");
+      video.crossOrigin = "anonymous";
+      video.src = videoUrl;
+      video.muted = true;
+      video.playsInline = true;
+
+      const frames: string[] = [];
+      video.onloadedmetadata = async () => {
+        const duration = video.duration || 3;
+        const sampleTimes = [Math.max(0.3, duration * 0.2), duration * 0.5, Math.max(0.6, duration * 0.8)];
+
+        for (const time of sampleTimes) {
+          await new Promise<void>((res) => {
+            const onSeeked = () => {
+              video.removeEventListener("seeked", onSeeked);
+              try {
+                const canvas = document.createElement("canvas");
+                const scale = Math.min(1, 640 / Math.max(video.videoWidth || 640, 1));
+                canvas.width = (video.videoWidth || 640) * scale;
+                canvas.height = (video.videoHeight || 480) * scale;
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                  frames.push(canvas.toDataURL("image/jpeg", 0.8));
+                }
+              } catch (e) {
+                console.warn("Keyframe draw error:", e);
+              }
+              res();
+            };
+            video.addEventListener("seeked", onSeeked);
+            video.currentTime = Math.min(time, Math.max(0, duration - 0.1));
+          });
+        }
+        resolve(frames);
+      };
+
+      video.onerror = () => resolve([]);
+    });
+  };
 
   useEffect(() => {
     const profile = getFarmProfile();
@@ -74,17 +122,31 @@ export function DiseasePage() {
     refreshHistory();
   }, []);
 
-  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const isVideo = file.type.startsWith("video") || file.name.match(/\.(mp4|mov|webm|avi|mkv)$/i) !== null;
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
+        const dataUrl = reader.result as string;
         setUploadedMedia({
           name: file.name,
-          type: file.type.startsWith("video") ? "video" : "image",
-          mimeType: file.type || "image/jpeg",
-          url: reader.result as string,
+          type: isVideo ? "video" : "image",
+          mimeType: file.type || (isVideo ? "video/mp4" : "image/jpeg"),
+          url: dataUrl,
         });
+
+        if (isVideo) {
+          setExtractedFrames([]);
+          try {
+            const frames = await extractFramesFromVideo(dataUrl);
+            setExtractedFrames(frames);
+          } catch (err) {
+            console.warn("Video frame extraction failed:", err);
+          }
+        } else {
+          setExtractedFrames([]);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -92,14 +154,33 @@ export function DiseasePage() {
 
   const handleDiagnose = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Mobile UX: When clicking send/diagnose, dismiss keyboard so user sees the assessment cleanly
+    notesInputRef.current?.blur();
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setIsInputFocused(false);
+
     setLoading(true);
     setDiagnosisResult(null);
 
-    let fullSymptomsText = `Target Pond: ${selectedPond || "General Pond"}. Observations: ${description || "Attached fish photo for visual health diagnosis."}`;
+    let fullSymptomsText = `Target Pond: ${selectedPond || "General Pond"}. Observations: ${description || "Attached fish specimen for visual health diagnosis."}`;
 
     let mediaAttachments: MediaAttachment[] = [];
     if (uploadedMedia) {
-      mediaAttachments.push({ mimeType: uploadedMedia.mimeType, data: uploadedMedia.url });
+      if (uploadedMedia.type === "video") {
+        if (extractedFrames.length > 0) {
+          extractedFrames.forEach((frame) => {
+            mediaAttachments.push({ mimeType: "image/jpeg", data: frame });
+          });
+        } else {
+          mediaAttachments.push({ mimeType: uploadedMedia.mimeType, data: uploadedMedia.url });
+        }
+        fullSymptomsText += ` [Farmer uploaded video observation showing fish swimming motion and behavior across multiple frames. Look out for erratic swimming, buoyancy problems, lesions, floating, or signs of sickness.]`;
+      } else {
+        mediaAttachments.push({ mimeType: uploadedMedia.mimeType, data: uploadedMedia.url });
+      }
     }
 
     try {
@@ -110,7 +191,7 @@ export function DiseasePage() {
       saveDiagnosis({
         result,
         pond: selectedPond || "General Pond",
-        imageUrl: uploadedMedia?.url,
+        imageUrl: uploadedMedia?.type === "video" && extractedFrames.length > 0 ? extractedFrames[0] : uploadedMedia?.url,
       });
       refreshHistory();
     } catch (err) {
@@ -253,23 +334,37 @@ export function DiseasePage() {
         {activeMode === "health" && (
           <form onSubmit={handleDiagnose} className="bg-white p-5 rounded-3xl border border-gray-200/80 shadow-md space-y-4">
             <div>
-              <label className="block text-xs font-extrabold text-gray-900 mb-2">1. Upload Fish or Pond Photo</label>
+              <label className="block text-xs font-extrabold text-gray-900 mb-2">
+                1. Upload Fish Photo or Swimming Video
+              </label>
               <input type="file" ref={fileInputRef} accept="image/*,video/*" onChange={handleMediaUpload} className="hidden" />
               {uploadedMedia ? (
-                <div className="relative rounded-2xl overflow-hidden border-2 border-[#0F6236] shadow-md group">
-                  <img src={uploadedMedia.url} alt="Uploaded fish sample" className="w-full h-48 object-cover" />
+                <div className="relative rounded-2xl overflow-hidden border-2 border-[#0F6236] shadow-md group bg-black">
+                  {uploadedMedia.type === "video" ? (
+                    <div className="relative">
+                      <video src={uploadedMedia.url} controls playsInline className="w-full h-52 object-contain bg-black" />
+                      <div className="absolute top-2 left-2 bg-[#0F6236]/90 backdrop-blur-md text-white text-[10.5px] font-black px-2.5 py-1 rounded-full flex items-center gap-1.5 shadow-md">
+                        <Video className="w-3.5 h-3.5" /> Video Inspection {extractedFrames.length > 0 && `(${extractedFrames.length} Frames)`}
+                      </div>
+                    </div>
+                  ) : (
+                    <img src={uploadedMedia.url} alt="Uploaded fish sample" className="w-full h-48 object-cover" />
+                  )}
                   <button type="button" onClick={() => fileInputRef.current?.click()}
-                    className="absolute inset-0 bg-black/40 text-white font-extrabold text-xs flex items-center justify-center gap-2 opacity-90 hover:opacity-100 transition-opacity cursor-pointer">
-                    <RefreshCw className="w-4 h-4" /> Tap to Retake Photo
+                    className="absolute top-2 right-2 bg-black/70 hover:bg-black/90 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-md cursor-pointer transition-all">
+                    <RefreshCw className="w-3.5 h-3.5" /> Retake
                   </button>
                 </div>
               ) : (
                 <button type="button" onClick={() => fileInputRef.current?.click()}
                   className="w-full h-36 rounded-2xl border-2 border-dashed border-[#0F6236]/30 bg-[#0F6236]/5 hover:bg-[#0F6236]/10 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs">
                   <div className="flex flex-col items-center gap-1.5 text-[#0F6236]">
-                    <Upload className="w-8 h-8 text-[#0F6236]" />
-                    <span className="text-xs font-extrabold text-gray-900">Tap to upload photo from camera</span>
-                    <span className="text-[10.5px] text-gray-500 font-medium">Veterinary AI visual feature detection</span>
+                    <div className="flex items-center gap-2 text-[#0F6236]">
+                      <Upload className="w-6 h-6" />
+                      <Video className="w-6 h-6" />
+                    </div>
+                    <span className="text-xs font-extrabold text-gray-900">Upload fish photo or video</span>
+                    <span className="text-[10.5px] text-gray-500 font-medium">Veterinary AI inspects swimming, lesions & disease</span>
                   </div>
                 </button>
               )}
@@ -288,17 +383,39 @@ export function DiseasePage() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-extrabold text-gray-900 mb-1">3. Visual Symptoms or Notes</label>
-              <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
+            <div className="transition-all duration-200">
+              <label className="block text-xs font-extrabold text-gray-900 mb-1">
+                3. Visual Symptoms or Notes
+              </label>
+              <textarea
+                ref={notesInputRef}
+                rows={isInputFocused ? 4 : 2}
+                value={description}
+                onFocus={(e) => {
+                  setIsInputFocused(true);
+                  setTimeout(() => {
+                    e.currentTarget.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }, 150);
+                }}
+                onBlur={() => setIsInputFocused(false)}
+                onChange={(e) => setDescription(e.target.value)}
                 placeholder="Type visual symptoms, fish behavior, or pond notes..."
-                className="w-full p-3 rounded-2xl border border-gray-200 text-xs font-medium text-gray-900 outline-none focus:ring-2 focus:ring-[#0F6236]/20 bg-gray-50" />
+                className={`w-full p-3 rounded-2xl border text-xs font-medium text-gray-900 outline-none transition-all ${
+                  isInputFocused
+                    ? "border-[#0F6236] ring-3 ring-[#0F6236]/20 bg-white shadow-lg"
+                    : "border-gray-200 bg-gray-50 focus:ring-2 focus:ring-[#0F6236]/20"
+                }`}
+              />
             </div>
 
             <button type="submit" disabled={loading}
               className="w-full h-13 rounded-2xl bg-[#0F6236] hover:bg-[#0B4D29] text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#0F6236]/25 cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50">
               {loading ? (
-                <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing Visual Features...</>
+                uploadedMedia?.type === "video" ? (
+                  <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing Video Motion & Fish Health...</>
+                ) : (
+                  <><Loader2 className="w-5 h-5 animate-spin" /> Analyzing Visual Features...</>
+                )
               ) : (
                 <><Stethoscope className="w-5 h-5" /> Run Veterinary Assessment</>
               )}
@@ -318,13 +435,13 @@ export function DiseasePage() {
                 </div>
                 <h3 className="text-base font-black text-amber-950">No Fish Detected</h3>
                 <p className="text-xs font-semibold text-amber-900 leading-relaxed">
-                  {diagnosisResult.notFishReason || "Please upload a clear photo of your fish so the AI Doctor can assess its health."}
+                  {diagnosisResult.notFishReason || "Please upload a clear photo or video of your fish so the AI Doctor can assess its health."}
                 </p>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs rounded-2xl shadow-md cursor-pointer transition-all">
-                  Upload Fish Photo
+                  Upload Fish Photo / Video
                 </button>
               </div>
             ) : (
@@ -334,29 +451,15 @@ export function DiseasePage() {
                   {/* Top Bar: Species Name (BOLD BLACK TEXT) & Actions */}
                   <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
                     <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider block">Identified Fish Species</span>
-                        {!diagnosisResult.isFullBodyVisible && (
-                          <span className="inline-flex items-center gap-1 text-[9.5px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" /> Full Body Missing
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider block">Identified Fish Species</span>
 
                       <h2 className="text-lg font-black text-black leading-tight mt-0.5">
                         {diagnosisResult.isFullBodyVisible
                           ? (diagnosisResult.species || "Unspecified Fish Species")
-                          : "Cannot identify — full body not visible"}
+                          : (diagnosisResult.species?.toLowerCase().includes("cannot identify")
+                              ? diagnosisResult.species
+                              : "Cannot identify — full body not visible")}
                       </h2>
-
-                      {!diagnosisResult.isFullBodyVisible && (
-                        <div className="p-3 bg-amber-50/90 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1 mt-2">
-                          <span className="font-extrabold block text-amber-950">⚠️ Full Body View Required</span>
-                          <p className="text-[11px] leading-relaxed font-medium">
-                            The AI Fish Doctor does not guess species from partial or cropped views. To identify the exact fish species, please upload a photo showing the entire fish from head to tail.
-                          </p>
-                        </div>
-                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -375,9 +478,13 @@ export function DiseasePage() {
                     </div>
                   </div>
 
-                  {/* Image Thumbnail if attached */}
+                  {/* Media Thumbnail if attached */}
                   {uploadedMedia?.url && (
-                    <img src={uploadedMedia.url} alt="Fish scan" className="w-full h-44 object-cover rounded-2xl border border-gray-100 shadow-sm" />
+                    uploadedMedia.type === "video" ? (
+                      <video src={uploadedMedia.url} controls playsInline className="w-full h-44 object-contain bg-black rounded-2xl border border-gray-100 shadow-sm" />
+                    ) : (
+                      <img src={uploadedMedia.url} alt="Fish scan" className="w-full h-44 object-cover rounded-2xl border border-gray-100 shadow-sm" />
+                    )
                   )}
 
                   {/* Status Badge */}

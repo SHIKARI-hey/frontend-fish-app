@@ -1,51 +1,63 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { ArrowLeft, ShieldAlert, Key, Users, Eye, EyeOff, Trash2, Search, Download, CheckCircle2, XCircle, RefreshCw, Cpu, Lock, LogOut } from "lucide-react";
+import { 
+  ArrowLeft, ShieldAlert, Key, Users, Eye, EyeOff, Trash2, Search, 
+  Download, CheckCircle2, XCircle, RefreshCw, Lock, LogOut, Database,
+  Copy, Check, ExternalLink, HelpCircle, Mail, Sparkles
+} from "lucide-react";
 import { BottomNav, PhoneFrame } from "@/components/BottomNav";
-import { getRegisteredAccounts, deleteAccountById, UserAccount } from "@/lib/userAccounts";
+import { getRegisteredAccounts, deleteAccountById } from "@/lib/userAccounts";
+import { 
+  fetchAllUserLogins, 
+  getSupabaseConfig, 
+  saveSupabaseConfig, 
+  UserLoginRecord 
+} from "@/lib/supabase";
 
 export const Route = createFileRoute("/admin")({
   component: AdminPage,
   head: () => ({
     meta: [
-      { title: "Admin Console — Fish Doctor System" },
-      { name: "description", content: "System Administration & Registered Accounts Console." },
+      { title: "Admin Console — Fish Doctor User & System Management" },
+      { name: "description", content: "View all user logins, Gmail accounts, and manage Supabase database connection." },
     ],
   }),
 });
-
-const getGroqKey = (): string => {
-  if (import.meta.env.VITE_GROQ_API_KEY) {
-    return import.meta.env.VITE_GROQ_API_KEY;
-  }
-  const p = ["Z3NrX3BkYVg4", "dVRHMUlUTkRQ", "RW56MnN1V0dk", "eWIzRlkyZ0Fy", "MXhEWHV0Q1FE", "T3hvaDgxUzRS", "WWk="];
-  try {
-    const encoded = p.join("");
-    return typeof atob === "function" ? atob(encoded) : Buffer.from(encoded, "base64").toString("utf-8");
-  } catch {
-    return "";
-  }
-};
 
 export function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>("");
   const [passwordError, setPasswordError] = useState<string>("");
 
-  const [accounts, setAccounts] = useState<UserAccount[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showKeys, setShowKeys] = useState(false);
+  const [logins, setLogins] = useState<UserLoginRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const groqKey = getGroqKey();
-  const googleClientId = "452065425715-minmjhca07v6102q8al1ephe2l6sdvds.apps.googleusercontent.com";
+  // Supabase Settings
+  const [supabaseUrl, setSupabaseUrl] = useState<string>("");
+  const [supabaseKey, setSupabaseKey] = useState<string>("");
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
+  const [testStatus, setTestStatus] = useState<string>("");
+  const [showSupabaseGuide, setShowSupabaseGuide] = useState<boolean>(false);
+  const [copiedSql, setCopiedSql] = useState<boolean>(false);
 
   useEffect(() => {
     const savedAuth = sessionStorage.getItem("admin_authenticated_v1");
     if (savedAuth === "true") {
       setIsAuthenticated(true);
-      refreshAccounts();
+      initAdminData();
     }
   }, []);
+
+  const initAdminData = async () => {
+    const config = getSupabaseConfig();
+    setSupabaseUrl(config.url);
+    setSupabaseKey(config.anonKey);
+    if (config.url && config.anonKey) {
+      setIsSupabaseConnected(true);
+    }
+    await refreshLogins();
+  };
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,9 +65,9 @@ export function AdminPage() {
       setIsAuthenticated(true);
       sessionStorage.setItem("admin_authenticated_v1", "true");
       setPasswordError("");
-      refreshAccounts();
+      initAdminData();
     } else {
-      setPasswordError("Incorrect Admin password! Please try again.");
+      setPasswordError("Incorrect Admin password (default: 1222). Please try again.");
     }
   };
 
@@ -65,36 +77,112 @@ export function AdminPage() {
     setPasswordInput("");
   };
 
-  const refreshAccounts = () => {
-    setAccounts(getRegisteredAccounts());
-  };
-
-  const handleDelete = (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete account "${name}"?`)) {
-      deleteAccountById(id);
-      refreshAccounts();
+  const refreshLogins = async () => {
+    setLoading(true);
+    try {
+      const records = await fetchAllUserLogins();
+      setLogins(records);
+    } catch (err) {
+      console.error("Failed to load user logins:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleExportJSON = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(accounts, null, 2));
-    const downloadAnchor = document.createElement("a");
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `registered_accounts_${Date.now()}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
+  const handleSaveSupabaseConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTestStatus("Testing connection...");
+    saveSupabaseConfig(supabaseUrl, supabaseKey);
+
+    if (!supabaseUrl.trim() || !supabaseKey.trim()) {
+      setIsSupabaseConnected(false);
+      setTestStatus("Supabase configuration cleared.");
+      return;
+    }
+
+    try {
+      const cleanUrl = supabaseUrl.trim().replace(/\/+$/, "");
+      const res = await fetch(`${cleanUrl}/rest/v1/user_logins?select=count`, {
+        headers: {
+          apikey: supabaseKey.trim(),
+          Authorization: `Bearer ${supabaseKey.trim()}`,
+        },
+      });
+
+      if (res.ok || res.status === 200 || res.status === 206) {
+        setIsSupabaseConnected(true);
+        setTestStatus("✅ Successfully connected to Supabase!");
+        await refreshLogins();
+      } else if (res.status === 404 || res.status === 400) {
+        setIsSupabaseConnected(false);
+        setTestStatus("⚠️ Connected to Supabase, but the 'user_logins' table does not exist yet. Run the SQL script below!");
+      } else {
+        setIsSupabaseConnected(false);
+        setTestStatus(`❌ Supabase error: HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      setIsSupabaseConnected(false);
+      setTestStatus(`❌ Could not connect: ${err.message || "Network error"}`);
+    }
   };
 
-  const filteredAccounts = accounts.filter(
-    (acc) =>
-      acc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (acc.email && acc.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (acc.phone && acc.phone.includes(searchQuery)) ||
-      (acc.farmName && acc.farmName.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const handleCopySql = () => {
+    const sql = `-- Run this in Supabase SQL Editor:
+create table if not exists user_logins (
+  id text primary key,
+  email text,
+  name text,
+  avatar_url text,
+  auth_provider text default 'google',
+  farm_name text default 'My Fish Farm',
+  last_login_at timestamptz default now(),
+  created_at timestamptz default now(),
+  login_count integer default 1
+);
 
-  // If not authenticated, render Password Gate Screen
+-- Enable open insert/read for authenticated & anon client requests
+alter table user_logins enable row level security;
+create policy "Allow client insert" on user_logins for insert with check (true);
+create policy "Allow client update" on user_logins for update using (true);
+create policy "Allow client select" on user_logins for select using (true);`;
+
+    navigator.clipboard.writeText(sql);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
+
+  const handleExportCSV = () => {
+    if (logins.length === 0) return alert("No logins to export!");
+    const headers = ["Email", "Full Name", "Provider", "Farm Name", "Last Login", "Created At"];
+    const rows = logins.map(l => [
+      `"${l.email || ""}"`,
+      `"${l.name || ""}"`,
+      `"${l.auth_provider || "google"}"`,
+      `"${l.farm_name || "My Fish Farm"}"`,
+      `"${l.last_login_at || ""}"`,
+      `"${l.created_at || ""}"`,
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `fish_doctor_users_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const filteredLogins = logins.filter((item) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (item.email && item.email.toLowerCase().includes(q)) ||
+      (item.name && item.name.toLowerCase().includes(q)) ||
+      (item.farm_name && item.farm_name.toLowerCase().includes(q))
+    );
+  });
+
+  // ── Password Gate Screen ──
   if (!isAuthenticated) {
     return (
       <PhoneFrame>
@@ -103,7 +191,7 @@ export function AdminPage() {
             <Link to="/home" className="p-1 hover:bg-gray-100 rounded-full">
               <ArrowLeft className="w-5.5 h-5.5 text-gray-900" />
             </Link>
-            <h1 className="text-[19px] font-extrabold text-gray-900 leading-tight">Admin Authentication</h1>
+            <h1 className="text-[19px] font-extrabold text-gray-900 leading-tight">Admin Gate</h1>
           </div>
         </header>
 
@@ -112,9 +200,9 @@ export function AdminPage() {
             <Lock className="w-8 h-8" />
           </div>
 
-          <h2 className="text-xl font-extrabold text-gray-900 mb-1">Restricted Access</h2>
+          <h2 className="text-xl font-extrabold text-gray-900 mb-1">Admin Access Only</h2>
           <p className="text-xs text-gray-500 font-medium mb-6 max-w-[260px]">
-            Please enter your 4-digit Admin Security PIN to view system keys & user database.
+            Enter your 4-digit PIN to inspect all registered Gmail accounts and manage database routing.
           </p>
 
           <form onSubmit={handlePasswordSubmit} className="w-full max-w-[300px] space-y-4">
@@ -130,7 +218,7 @@ export function AdminPage() {
             />
 
             {passwordError && (
-              <div className="text-xs font-bold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200 animate-in fade-in">
+              <div className="text-xs font-bold text-red-600 bg-red-50 p-2.5 rounded-xl border border-red-200">
                 {passwordError}
               </div>
             )}
@@ -139,7 +227,7 @@ export function AdminPage() {
               type="submit"
               className="w-full h-13 rounded-2xl bg-[#0F6236] hover:bg-[#0B4D29] text-white font-extrabold text-sm shadow-lg shadow-[#0F6236]/25 cursor-pointer transition-all active:scale-95"
             >
-              Unlock Console
+              Unlock Admin Console
             </button>
           </form>
         </div>
@@ -151,7 +239,7 @@ export function AdminPage() {
 
   return (
     <PhoneFrame>
-      {/* Header */}
+      {/* Top Bar */}
       <header className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-gray-200 bg-white sticky top-0 z-30 shadow-xs">
         <div className="flex items-center gap-3">
           <Link to="/home" className="p-1 hover:bg-gray-100 rounded-full">
@@ -161,7 +249,7 @@ export function AdminPage() {
             <h1 className="text-[19px] font-extrabold text-gray-900 leading-tight flex items-center gap-1.5">
               <ShieldAlert className="w-5 h-5 text-[#0F6236]" /> Admin Console
             </h1>
-            <div className="text-xs font-bold text-gray-500">System Keys & Accounts Database</div>
+            <div className="text-xs font-bold text-gray-500">Live User Accounts & Supabase</div>
           </div>
         </div>
         <button onClick={handleAdminLogout} title="Lock Console" className="p-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 cursor-pointer">
@@ -169,124 +257,222 @@ export function AdminPage() {
         </button>
       </header>
 
-      <div className="p-5 space-y-5">
+      <div className="p-5 space-y-5 pb-20">
         
-        {/* System Keys & Credentials Card */}
-        <section className="bg-white p-4.5 rounded-3xl border border-gray-200 shadow-md space-y-3.5">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+        {/* ─── SUPABASE INTEGRATION & SETUP PANEL ─── */}
+        <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-md space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <div className="flex items-center gap-2">
-              <Key className="w-4.5 h-4.5 text-[#0F6236]" />
-              <h2 className="text-sm font-extrabold text-gray-900">API Keys & Credentials</h2>
+              <Database className="w-5 h-5 text-[#0F6236]" />
+              <div>
+                <h2 className="text-sm font-extrabold text-gray-900">Supabase Central Database</h2>
+                <p className="text-[11px] text-gray-500 font-medium">Store all logins & Gmail accounts in the cloud</p>
+              </div>
             </div>
-            <button
-              onClick={() => setShowKeys(!showKeys)}
-              className="text-xs font-extrabold text-[#0F6236] flex items-center gap-1 hover:underline cursor-pointer"
-            >
-              {showKeys ? <><EyeOff className="w-3.5 h-3.5" /> Hide</> : <><Eye className="w-3.5 h-3.5" /> Show Keys</>}
-            </button>
+            <span className={`text-[10.5px] font-black px-2.5 py-1 rounded-full border ${
+              isSupabaseConnected
+                ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                : "bg-amber-50 text-amber-700 border-amber-300"
+            }`}>
+              {isSupabaseConnected ? "🟢 Connected" : "🟡 In-Memory Fallback"}
+            </span>
           </div>
 
-          <div className="space-y-2.5 text-xs">
-            {/* Groq API Key */}
-            <div className="bg-gray-50 p-3 rounded-2xl border border-gray-200">
-              <div className="text-[10.5px] font-extrabold text-[#0F6236] uppercase tracking-wider">Primary AI Engine (Groq Llama 3.3 70B)</div>
-              <div className="font-mono text-[11px] font-bold text-gray-800 break-all mt-0.5">
-                {showKeys ? groqKey : "gsk_pdaX8uTG1I... (Hidden)"}
-              </div>
+          <form onSubmit={handleSaveSupabaseConfig} className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-extrabold text-gray-700 mb-1">
+                Supabase Project URL
+              </label>
+              <input
+                type="text"
+                value={supabaseUrl}
+                onChange={(e) => setSupabaseUrl(e.target.value)}
+                placeholder="https://your-project-id.supabase.co"
+                className="w-full h-10 px-3 text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-[#0F6236]/20 text-gray-900"
+              />
             </div>
 
-            {/* Google OAuth Client ID */}
-            <div className="bg-gray-50 p-3 rounded-2xl border border-gray-200">
-              <div className="text-[10.5px] font-extrabold text-[#0F6236] uppercase tracking-wider">Google OAuth 2.0 Client ID</div>
-              <div className="font-mono text-[11px] font-bold text-gray-800 break-all mt-0.5">
-                {showKeys ? googleClientId : "452065425715-minmjhc... (Hidden)"}
-              </div>
+            <div>
+              <label className="block text-[11px] font-extrabold text-gray-700 mb-1">
+                Supabase Anon / Public Key
+              </label>
+              <input
+                type="password"
+                value={supabaseKey}
+                onChange={(e) => setSupabaseKey(e.target.value)}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                className="w-full h-10 px-3 text-xs font-mono bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-[#0F6236]/20 text-gray-900"
+              />
             </div>
 
-            {/* Gemini Secondary Engine */}
-            <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-200 flex items-center justify-between text-xs font-bold text-[#0F6236]">
-              <div className="flex items-center gap-2">
-                <Cpu className="w-4 h-4" /> Gemini Live Voice TTS Engine
+            {testStatus && (
+              <div className={`p-2.5 rounded-xl text-xs font-bold ${
+                testStatus.startsWith("✅") ? "bg-emerald-50 text-emerald-800 border border-emerald-200" :
+                testStatus.startsWith("⚠️") ? "bg-amber-50 text-amber-800 border border-amber-200" :
+                "bg-red-50 text-red-800 border border-red-200"
+              }`}>
+                {testStatus}
               </div>
-              <span className="bg-[#0F6236] text-white text-[10px] px-2 py-0.5 rounded-full">Active</span>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="flex-1 h-10 bg-[#0F6236] hover:bg-[#0B4D29] text-white text-xs font-extrabold rounded-xl shadow-md cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Database className="w-3.5 h-3.5" /> Save & Test Connection
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSupabaseGuide(!showSupabaseGuide)}
+                className="px-3 h-10 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-extrabold rounded-xl cursor-pointer flex items-center gap-1"
+              >
+                <HelpCircle className="w-3.5 h-3.5" /> {showSupabaseGuide ? "Hide Guide" : "Setup Help"}
+              </button>
             </div>
-          </div>
+          </form>
+
+          {/* Collapsible Supabase Setup Instructions */}
+          {showSupabaseGuide && (
+            <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-200/80 text-xs space-y-3 animate-in fade-in">
+              <h3 className="font-extrabold text-[#0F6236] text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4" /> Exactly What to Get From Supabase:
+              </h3>
+              
+              <ol className="list-decimal pl-4 space-y-1.5 text-gray-700 font-medium">
+                <li>Create a free account at <strong>supabase.com</strong> and create a project.</li>
+                <li>Go to <strong>Project Settings → API</strong> in your Supabase dashboard.</li>
+                <li>Copy <strong>Project URL</strong> and paste into the box above.</li>
+                <li>Copy <strong>anon / public API key</strong> and paste into the box above.</li>
+                <li>Go to <strong>SQL Editor</strong> in Supabase and run the table creation script below:</li>
+              </ol>
+
+              <div className="relative bg-gray-900 text-emerald-400 p-3 rounded-xl font-mono text-[10.5px] overflow-x-auto">
+                <pre>{`create table if not exists user_logins (
+  id text primary key,
+  email text,
+  name text,
+  avatar_url text,
+  auth_provider text default 'google',
+  farm_name text default 'My Fish Farm',
+  last_login_at timestamptz default now(),
+  created_at timestamptz default now(),
+  login_count integer default 1
+);
+alter table user_logins enable row level security;
+create policy "Allow client insert" on user_logins for insert with check (true);
+create policy "Allow client update" on user_logins for update using (true);
+create policy "Allow client select" on user_logins for select using (true);`}</pre>
+                <button
+                  type="button"
+                  onClick={handleCopySql}
+                  className="absolute top-2 right-2 bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  {copiedSql ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedSql ? "Copied!" : "Copy SQL"}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
-        {/* Registered User Accounts Section */}
-        <section className="bg-white p-4.5 rounded-3xl border border-gray-200 shadow-md space-y-3.5">
-          <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+        {/* ─── REGISTERED ACCOUNTS & GMAIL LOGINS DIRECTORY ─── */}
+        <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-md space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
             <div className="flex items-center gap-2">
-              <Users className="w-4.5 h-4.5 text-[#0F6236]" />
-              <h2 className="text-sm font-extrabold text-gray-900">
-                Registered Accounts ({accounts.length})
-              </h2>
+              <Users className="w-5 h-5 text-[#0F6236]" />
+              <div>
+                <h2 className="text-sm font-extrabold text-gray-900">
+                  Logged In Users ({logins.length})
+                </h2>
+                <p className="text-[11px] text-gray-500 font-medium">Real-time Gmail accounts & login timestamps</p>
+              </div>
             </div>
-            <button
-              onClick={handleExportJSON}
-              className="text-xs font-extrabold px-3 py-1.5 rounded-xl bg-[#0F6236] text-white flex items-center gap-1 hover:bg-[#0B4D29] cursor-pointer shadow-xs"
-            >
-              <Download className="w-3.5 h-3.5" /> Export JSON
-            </button>
+            
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={refreshLogins}
+                disabled={loading}
+                title="Refresh user list"
+                className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 cursor-pointer transition-all"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+              </button>
+              <button
+                onClick={handleExportCSV}
+                title="Download CSV"
+                className="text-xs font-extrabold px-3 py-1.5 rounded-xl bg-[#0F6236] text-white hover:bg-[#0B4D29] flex items-center gap-1 cursor-pointer shadow-xs"
+              >
+                <Download className="w-3.5 h-3.5" /> CSV
+              </button>
+            </div>
           </div>
 
-          {/* Search Field */}
+          {/* Search bar */}
           <div className="relative">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, phone or email..."
+              placeholder="Search by Gmail, name, or farm..."
               className="w-full h-10 pl-9 pr-3 text-xs font-semibold bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-[#0F6236]/20"
             />
           </div>
 
-          {/* Accounts List */}
-          <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
-            {filteredAccounts.length > 0 ? (
-              filteredAccounts.map((acc) => (
-                <div key={acc.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-200 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <div className="font-extrabold text-xs text-gray-900 flex items-center gap-1.5">
-                      {acc.name}
-                      {acc.isGoogleSignedIn && (
-                        <span className="text-[9.5px] font-extrabold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Google</span>
+          {/* Users List */}
+          <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+            {filteredLogins.length > 0 ? (
+              filteredLogins.map((user) => {
+                const isGoogle = user.auth_provider === "google" || (user.email && user.email.includes("@gmail.com"));
+                return (
+                  <div key={user.id} className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 flex items-center justify-between hover:border-[#0F6236]/30 transition-all">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* Avatar */}
+                      {user.avatar_url ? (
+                        <img src={user.avatar_url} alt={user.name} className="w-10 h-10 rounded-full object-cover border border-[#0F6236]/20 shrink-0" />
+                      ) : (
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0 text-white ${
+                          isGoogle ? "bg-gradient-to-tr from-blue-600 to-indigo-600" : "bg-[#0F6236]"
+                        }`}>
+                          {user.name ? user.name.charAt(0).toUpperCase() : "U"}
+                        </div>
                       )}
-                    </div>
-                    <div className="text-[11px] font-bold text-gray-500">
-                      {acc.phone || acc.email || "No contact record"}
-                    </div>
-                    <div className="text-[10px] text-gray-400 font-semibold flex items-center gap-2">
-                      <span>Farm: {acc.farmName || "Default Farm"}</span>
-                      <span>•</span>
-                      <span>Reg: {new Date(acc.createdAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-2">
-                    {acc.onboardingCompleted ? (
-                      <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Ready
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100 px-2 py-1 rounded-full flex items-center gap-1">
-                        <XCircle className="w-3 h-3" /> Pending
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleDelete(acc.id, acc.name)}
-                      className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 cursor-pointer"
-                      title="Delete account"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      {/* Details */}
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-extrabold text-xs text-gray-900 truncate">
+                            {user.name || "Farmer"}
+                          </span>
+                          <span className={`text-[9.5px] font-black px-2 py-0.5 rounded-full ${
+                            isGoogle ? "bg-blue-100 text-blue-700 border border-blue-200" : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                          }`}>
+                            {isGoogle ? "Google Sign-In" : "Email"}
+                          </span>
+                        </div>
+
+                        {/* Prominent Gmail address */}
+                        <div className="text-xs font-black text-gray-900 flex items-center gap-1 truncate">
+                          <Mail className="w-3 h-3 text-[#0F6236] shrink-0" />
+                          <span className="font-mono text-[11.5px] text-gray-900">{user.email}</span>
+                        </div>
+
+                        <div className="text-[10px] text-gray-500 font-semibold flex items-center gap-2">
+                          <span>{user.farm_name || "My Fish Farm"}</span>
+                          <span>•</span>
+                          <span>Last login: {new Date(user.last_login_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
-              <div className="text-center py-6 text-xs text-gray-400 font-semibold">
-                No accounts match "{searchQuery}".
+              <div className="text-center py-10 text-xs text-gray-400 font-semibold space-y-1">
+                <Users className="w-8 h-8 text-gray-300 mx-auto" />
+                <p>No user accounts found matching "{searchQuery}".</p>
+                <p className="text-[11px] text-gray-400">Log in via Google or Email on the login page to see new records appear.</p>
               </div>
             )}
           </div>

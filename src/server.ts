@@ -61,7 +61,21 @@ const getOpenRouterKey = (): string => {
 
 // ─── System Prompt ─────────────────────────────────────────────────────────────
 
-const MALVOS_SYSTEM_PROMPT = `You are Malvos — an elite autonomous AI coding engine, computer vision specialist, and aquaculture veterinary intelligence system. You operate with maximum precision, actionable clarity, and high-performance problem solving. Provide direct, complete, production-ready solutions, expert code, and accurate visual/textual diagnoses without generic disclaimers or unnecessary fluff.`;
+const FISH_DOCTOR_SYSTEM_PROMPT = `You are Fish Doctor — an elite autonomous AI veterinary intelligence system, computer vision specialist, and aquaculture engineering intelligence. You operate with maximum precision, actionable clarity, and high-performance problem solving. Provide direct, complete, production-ready solutions, expert aquaculture guidance, and accurate visual/textual diagnoses without generic disclaimers or unnecessary fluff.`;
+
+// In-memory central login registry for Admin dashboard
+interface ServerUserLogin {
+  id: string;
+  email: string;
+  name: string;
+  avatar_url?: string;
+  auth_provider: string;
+  farm_name?: string;
+  last_login_at: string;
+  created_at: string;
+}
+
+const inMemoryLogins: Map<string, ServerUserLogin> = new Map();
 
 // ─── Zero-Downtime Multi-Engine Inference Cascade ──────────────────────────────
 
@@ -281,10 +295,10 @@ async function handleChatCompletions(request: Request): Promise<Response> {
     // 3. System Prompt Injection at messages[0]
     const messages = [...rawMessages];
     if (messages.length === 0 || messages[0].role !== "system") {
-      messages.unshift({ role: "system", content: MALVOS_SYSTEM_PROMPT });
+      messages.unshift({ role: "system", content: FISH_DOCTOR_SYSTEM_PROMPT });
     } else if (messages[0].role === "system") {
-      if (!messages[0].content.includes("Malvos")) {
-        messages[0].content = `${MALVOS_SYSTEM_PROMPT}\n\n${messages[0].content}`;
+      if (!messages[0].content.includes("Fish Doctor")) {
+        messages[0].content = `${FISH_DOCTOR_SYSTEM_PROMPT}\n\n${messages[0].content}`;
       }
     }
 
@@ -436,6 +450,40 @@ export default {
       url.pathname === "/v1/chat/completions"
     ) {
       return await handleChatCompletions(request);
+    }
+
+    // 5. Track logins centrally for Admin Dashboard
+    if (url.pathname === "/api/log-login" && request.method === "POST") {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const key = (body.email || body.name || body.id || "").toLowerCase();
+        if (key) {
+          inMemoryLogins.set(key, {
+            id: body.id || `usr_${Date.now().toString(36)}`,
+            email: body.email || "No email",
+            name: body.name || "Farmer",
+            avatar_url: body.avatar_url,
+            auth_provider: body.auth_provider || "google",
+            farm_name: body.farm_name || "My Fish Farm",
+            last_login_at: body.last_login_at || new Date().toISOString(),
+            created_at: body.created_at || new Date().toISOString(),
+          });
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      } catch {
+        return new Response(JSON.stringify({ ok: false }), { status: 400 });
+      }
+    }
+
+    if (url.pathname === "/api/admin/logins") {
+      const list = Array.from(inMemoryLogins.values()).sort(
+        (a, b) => new Date(b.last_login_at).getTime() - new Date(a.last_login_at).getTime()
+      );
+      return new Response(JSON.stringify(list), {
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
     }
 
     try {
