@@ -17,7 +17,6 @@ import iconMarketPrices from "@/assets/icons/market-prices.png";
 import iconSupport from "@/assets/icons/support.png";
 
 import { useLanguage } from "@/lib/languageContext";
-import { getGeminiLiveVoiceAudio, speakTextInstant } from "@/lib/gemini";
 import { getFarmProfile } from "@/lib/farmMemory";
 import { getSubscriptionStatus, SubscriptionStatus, PRO_MONTHLY_PRICE_GHC } from "@/lib/subscription";
 import { getRealActiveFarmersCount } from "@/lib/sharedCommunity";
@@ -54,11 +53,6 @@ export function HomePage() {
   // Subscription & Payment State
   const [subStatus, setSubStatus] = useState<SubscriptionStatus>(getSubscriptionStatus());
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-
-  // Audio Playback State
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [audioStatusText, setAudioStatusText] = useState("");
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const weatherAlert = {
     summary: "Tropical Climate (29°C) • Feeding Schedule Optimal"
@@ -177,35 +171,6 @@ export function HomePage() {
     return () => clearInterval(subInterval);
   }, []);
 
-  const handlePlayDailyVoiceAdvice = () => {
-    if (isPlayingAudio) {
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause();
-        currentAudioRef.current = null;
-      }
-      setIsPlayingAudio(false);
-      setAudioStatusText("");
-      return;
-    }
-
-    setIsPlayingAudio(true);
-    setAudioStatusText("Playing Voice...");
-
-    speakTextInstant(
-      liveWeather.adviceText,
-      language,
-      () => {
-        setIsPlayingAudio(true);
-        setAudioStatusText("Playing Voice...");
-      },
-      () => {
-        setIsPlayingAudio(false);
-        setAudioStatusText("");
-        currentAudioRef.current = null;
-      }
-    );
-  };
-
   return (
     <PhoneFrame>
       {/* Location Completion Prompt */}
@@ -275,14 +240,11 @@ export function HomePage() {
               {pondsCount > 0 ? "Farm Operations Active" : "Farm Setup Ready"}
             </span>
 
-            {/* Weather & 1-Tap Audio Brief */}
-            <button
-              onClick={handlePlayDailyVoiceAdvice}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-white text-[11px] font-extrabold cursor-pointer transition-all active:scale-95 shadow-2xs"
-            >
-              <Volume2 className="w-3.5 h-3.5 text-emerald-300" />
-              <span>{isPlayingAudio ? "Playing..." : `${liveWeather.temp}°C Voice Brief`}</span>
-            </button>
+            {/* Live Weather Indicator */}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 border border-white/15 text-white text-[11px] font-extrabold shadow-2xs">
+              <CloudRain className="w-3.5 h-3.5 text-emerald-300" />
+              <span>{liveWeather.temp}°C • Optimal</span>
+            </div>
           </div>
 
           {/* Headline & Overview */}
@@ -453,14 +415,8 @@ export function HomePage() {
           </span>
         </div>
 
-        <div className="mt-2.5 p-3 rounded-2xl bg-white/10 text-xs font-medium text-sky-100 border border-white/10 leading-relaxed flex items-center justify-between gap-3">
+        <div className="mt-2.5 p-3 rounded-2xl bg-white/10 text-xs font-medium text-sky-100 border border-white/10 leading-relaxed">
           <span>{liveWeather.adviceText}</span>
-          <button
-            onClick={handlePlayDailyVoiceAdvice}
-            className="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white font-extrabold text-[11px] shrink-0 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
-          >
-            <Volume2 className="w-3.5 h-3.5 text-sky-200" /> Listen
-          </button>
         </div>
       </section>
 

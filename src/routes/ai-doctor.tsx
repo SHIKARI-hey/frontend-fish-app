@@ -2,17 +2,16 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useRef, useEffect } from "react";
 import { 
   ArrowLeft, MapPin, Upload, RefreshCw, Stethoscope, Loader2, 
-  Volume2, VolumeX, ShieldCheck, 
+  ShieldCheck, 
   ChevronDown, ChevronUp, Droplets, Activity, Pill,
   AlertTriangle, Info, Share2, Printer, CheckCircle2, XCircle,
   Clock, Trash2, History
 } from "lucide-react";
 import { BottomNav, PhoneFrame } from "@/components/BottomNav";
 import farmerImg from "@/assets/farmer.jpg";
-import { diagnoseFishDiseaseAI, MediaAttachment, speakTextInstant, DiagnosisResult } from "@/lib/gemini";
+import { diagnoseFishDiseaseAI, MediaAttachment, DiagnosisResult } from "@/lib/gemini";
 import { useLanguage } from "@/lib/languageContext";
 import { getFarmProfile, PondRecord } from "@/lib/farmMemory";
-import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { getDiagnosisHistory, saveDiagnosis, deleteDiagnosis, clearAllDiagnoses, SavedDiagnosis, formatDiagnosisDate } from "@/lib/diagnosisHistory";
 
 export const Route = createFileRoute("/ai-doctor")({
@@ -36,7 +35,6 @@ export function DiseasePage() {
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
   const [scanTimestamp, setScanTimestamp] = useState<string>("");
   const [userCity, setUserCity] = useState<string>("Accra & Ashanti Region, Ghana");
-  const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
   const [showExplanation, setShowExplanation] = useState<boolean>(false);
 
   // Diagnosis history
@@ -55,7 +53,6 @@ export function DiseasePage() {
 
   const [uploadedMedia, setUploadedMedia] = useState<{ name: string; type: string; mimeType: string; url: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const profile = getFarmProfile();
@@ -121,20 +118,6 @@ export function DiseasePage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const toggleAudio = () => {
-    if (isPlayingAudio) {
-      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-      setIsPlayingAudio(false);
-      return;
-    }
-    if (!diagnosisResult) return;
-    const speciesInfo = diagnosisResult.isFullBodyVisible
-      ? `Identified species: ${diagnosisResult.species}. `
-      : "Fish species cannot be identified because the full body of the fish is not visible in the photo. ";
-    const ttsSummary = `${speciesInfo}${diagnosisResult.diseaseName}. ${diagnosisResult.whyThisDiagnosis} Treatment: ${diagnosisResult.treatmentPlan?.medication || ""}`;
-    speakTextInstant(ttsSummary, language, () => setIsPlayingAudio(true), () => setIsPlayingAudio(false));
   };
 
   const getRiskColor = (level: string) => {
@@ -306,12 +289,9 @@ export function DiseasePage() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-extrabold text-gray-900">3. Visual Symptoms or Notes</label>
-                <VoiceRecorder onTranscript={(text) => setDescription((prev) => (prev ? `${prev} ${text}` : text))} />
-              </div>
+              <label className="block text-xs font-extrabold text-gray-900 mb-1">3. Visual Symptoms or Notes</label>
               <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)}
-                placeholder="Type or tap Voice Note to speak in Twi or English..."
+                placeholder="Type visual symptoms, fish behavior, or pond notes..."
                 className="w-full p-3 rounded-2xl border border-gray-200 text-xs font-medium text-gray-900 outline-none focus:ring-2 focus:ring-[#0F6236]/20 bg-gray-50" />
             </div>
 
@@ -382,14 +362,6 @@ export function DiseasePage() {
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
-                        onClick={toggleAudio}
-                        className={`px-3 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
-                          isPlayingAudio ? "bg-red-50 text-red-600 border-red-200" : "bg-emerald-50 text-[#0F6236] border-emerald-200"
-                        }`}>
-                        {isPlayingAudio ? <><VolumeX className="w-4 h-4" /> Stop</> : <><Volume2 className="w-4 h-4" /> Listen (Twi/EN)</>}
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => {
                           const speciesText = diagnosisResult.isFullBodyVisible
                             ? (diagnosisResult.species || "Fish")
@@ -397,8 +369,8 @@ export function DiseasePage() {
                           const text = `🐟 Fish Doctor AI Assessment\n\nSpecies: ${speciesText}\nCondition: ${diagnosisResult.diseaseName}\n\nFindings:\n${diagnosisResult.riskDescription}\n\nAction Plan:\n${diagnosisResult.treatmentPlan?.immediateActions?.join("\n")}\n\nGenerated via FishFarm OS Ghana`;
                           window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
                         }}
-                        className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 border border-gray-200 cursor-pointer">
-                        <Share2 className="w-4 h-4 text-gray-700" />
+                        className="px-3.5 py-2 rounded-xl bg-[#0F6236] text-white hover:bg-[#0B4D29] text-xs font-extrabold flex items-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-95">
+                        <Share2 className="w-4 h-4" /> Share WhatsApp
                       </button>
                     </div>
                   </div>

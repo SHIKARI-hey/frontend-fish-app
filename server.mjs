@@ -37,25 +37,24 @@ function getMime(filePath) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    // Try serving static files from dist/client first
-    const clientDir = path.join(__dirname, "dist", "client");
-    let staticPath = path.join(clientDir, req.url.split("?")[0]);
+    const isApiRequest = req.url.startsWith("/api/") || req.url.startsWith("/v1/");
 
-    // Handle directory requests
-    if (!path.extname(staticPath)) {
-      staticPath = path.join(clientDir, "index.html");
+    // Try serving static files from dist/client first for GET/HEAD non-API requests
+    if (!isApiRequest && (req.method === "GET" || req.method === "HEAD")) {
+      const clientDir = path.join(__dirname, "dist", "client");
+      let staticPath = path.join(clientDir, req.url.split("?")[0]);
+
+      if (existsSync(staticPath) && path.extname(staticPath)) {
+        const data = await readFile(staticPath);
+        res.writeHead(200, {
+          "Content-Type": getMime(staticPath),
+          "Cache-Control": path.extname(staticPath) === ".html" ? "no-cache" : "public, max-age=31536000",
+        });
+        return res.end(data);
+      }
     }
 
-    if (existsSync(staticPath) && path.extname(staticPath)) {
-      const data = await readFile(staticPath);
-      res.writeHead(200, {
-        "Content-Type": getMime(staticPath),
-        "Cache-Control": path.extname(staticPath) === ".html" ? "no-cache" : "public, max-age=31536000",
-      });
-      return res.end(data);
-    }
-
-    // Fall through to SSR handler
+    // Forward API and SSR requests to server handler
     const url = new URL(req.url, `http://${req.headers.host || `${HOST}:${PORT}`}`);
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) {

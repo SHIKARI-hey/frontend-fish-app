@@ -19,16 +19,6 @@ const getGeminiKey = (): string => {
   }
 };
 
-const getGroqKey = (): string => {
-  if ((globalThis as any).__GROQ_KEY__) return (globalThis as any).__GROQ_KEY__;
-  if (typeof window !== "undefined" && localStorage.getItem("user_groq_api_key")) return localStorage.getItem("user_groq_api_key")!;
-  const envKey = (typeof import.meta !== "undefined" && import.meta.env?.VITE_GROQ_API_KEY) || (typeof process !== "undefined" && process.env?.VITE_GROQ_API_KEY);
-  if (envKey && envKey.trim()) return envKey.trim();
-  // Key split into fragments so GitHub secret scanning doesn't block the push
-  const p = ["Z3NrX3BkYVg4", "dVRHMUlUTkRQ", "RW56MnN1V0dk", "eWIzRlkyZ0Fy", "MXhEWHV0Q1FE", "T3hvaDgxUzRS", "WWk="];
-  try { return atob(p.join("")); } catch { return ""; }
-};
-
 const getOpenRouterKey = (): string => {
   if ((globalThis as any).__OPENROUTER_KEY__) return (globalThis as any).__OPENROUTER_KEY__;
   if (typeof window !== "undefined" && localStorage.getItem("user_openrouter_api_key")) return localStorage.getItem("user_openrouter_api_key")!;
@@ -39,139 +29,11 @@ const getOpenRouterKey = (): string => {
 };
 
 export function setGeminiKey(key: string) { (globalThis as any).__GEMINI_KEY__ = key; }
-export function setGroqKey(key: string) { (globalThis as any).__GROQ_KEY__ = key; }
 export function setOpenRouterKey(key: string) { (globalThis as any).__OPENROUTER_KEY__ = key; }
 
-// ─── Groq Engine (text + vision via llama) ─────────────────────────────────────
+// ─── Direct Fallback Engines (Client-Side Resiliency) ──────────────────────────
 
-export async function analyzeUploadedFishPhoto(_dataUrl: string): Promise<{
-  bodyPart: string;
-  lesionType: string;
-  severity: "Mild" | "Moderate" | "Severe" | "Critical";
-  confidence: number;
-  species: string;
-  visualSummaryText: string;
-  secondaryObservations: string[];
-}> {
-  return {
-    bodyPart: "Body Skin & Scales",
-    lesionType: "Photo submitted for analysis",
-    severity: "Moderate",
-    confidence: 90,
-    species: "Tilapia / Catfish",
-    visualSummaryText: "Uploaded image submitted.",
-    secondaryObservations: []
-  };
-}
-
-// Resize and compress an image data URL to a max dimension, returning a JPEG data URL.
-// Groq vision models reject payloads over ~4MB base64; keeping images small avoids this.
-async function resizeImageForVision(dataUrl: string, maxDim = 768, quality = 0.82): Promise<string> {
-  if (typeof window === "undefined" || typeof document === "undefined") return dataUrl;
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const scale = Math.min(1, maxDim / Math.max(img.width || maxDim, img.height || maxDim));
-        const w = Math.round((img.width || maxDim) * scale);
-        const h = Math.round((img.height || maxDim) * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(dataUrl); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      } catch { resolve(dataUrl); }
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
-}
-
-// ─── OpenRouter Engine ─────────────────────────────────────────────────────────
-
-async function callOpenRouterEngine(
-  prompt: string,
-  systemInstruction?: string,
-  mediaAttachments?: MediaAttachment[],
-  farmContext?: string
-): Promise<string> {
-  const apiKey = getOpenRouterKey();
-  if (!apiKey) throw new Error("No OpenRouter key");
-
-  const system = [
-    "You are Fish Doctor AI — an expert aquatic veterinarian for fish farmers.",
-    systemInstruction,
-    farmContext ? `[FARM MEMORY]:\n${farmContext}` : ""
-  ].filter(Boolean).join("\n\n");
-
-  const hasImages = mediaAttachments && mediaAttachments.length > 0;
-  const userContent: any[] = [];
-
-  if (hasImages && mediaAttachments) {
-    for (const m of mediaAttachments) {
-      let dataUrl = m.data;
-      const mime = m.mimeType || "image/jpeg";
-      if (!dataUrl.startsWith("data:")) dataUrl = `data:${mime};base64,${dataUrl}`;
-      userContent.push({ type: "image_url", image_url: { url: dataUrl } });
-    }
-  }
-  userContent.push({ type: "text", text: prompt });
-
-  const MODELS = [
-    "google/gemma-4-26b-a4b-it:free",
-    "google/gemma-4-31b-it:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen-2.5-72b-instruct:free",
-    "openai/gpt-4o-mini"
-  ];
-
-  for (const model of MODELS) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://fishfarm.app",
-          "X-Title": "Fish Doctor AI"
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: hasImages ? userContent : prompt }
-          ],
-          temperature: 0.3,
-          max_tokens: 1200
-        })
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const e = await response.json().catch(() => ({}));
-        console.warn(`OpenRouter ${model} failed ${response.status}:`, JSON.stringify(e));
-        continue;
-      }
-      const data = await response.json();
-      const text = data?.choices?.[0]?.message?.content;
-      if (text?.trim()) return text.trim();
-    } catch (err: any) {
-      if (err?.name === "AbortError") { console.warn(`OpenRouter ${model} timed out`); continue; }
-      console.warn(`OpenRouter ${model} error:`, err);
-      continue;
-    }
-  }
-
-  throw new Error("All OpenRouter models failed");
-}
-
-async function callGeminiEngine(
+async function callDirectGeminiEngine(
   prompt: string,
   systemInstruction?: string,
   mediaAttachments?: MediaAttachment[],
@@ -231,7 +93,73 @@ async function callGeminiEngine(
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-// ─── Unified AI Call Router (OpenRouter Primary + Gemini Fallback) ────────────
+async function callDirectOpenRouterEngine(
+  prompt: string,
+  systemInstruction?: string,
+  mediaAttachments?: MediaAttachment[],
+  farmContext?: string
+): Promise<string> {
+  const apiKey = getOpenRouterKey();
+  if (!apiKey) throw new Error("No OpenRouter key");
+
+  const system = [
+    systemInstruction,
+    farmContext ? `[FARM MEMORY]:\n${farmContext}` : ""
+  ].filter(Boolean).join("\n\n");
+
+  const hasImages = mediaAttachments && mediaAttachments.length > 0;
+  const userContent: any[] = [];
+
+  if (hasImages && mediaAttachments) {
+    for (const m of mediaAttachments) {
+      let dataUrl = m.data;
+      const mime = m.mimeType || "image/jpeg";
+      if (!dataUrl.startsWith("data:")) dataUrl = `data:${mime};base64,${dataUrl}`;
+      userContent.push({ type: "image_url", image_url: { url: dataUrl } });
+    }
+  }
+  userContent.push({ type: "text", text: prompt });
+
+  const MODELS = [
+    "google/gemma-4-26b-a4b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen-2.5-72b-instruct:free",
+  ];
+
+  for (const model of MODELS) {
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://fishfarm.app",
+          "X-Title": "Fish Doctor AI"
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: hasImages ? userContent : prompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 1200
+        })
+      });
+
+      if (!response.ok) continue;
+      const data = await response.json();
+      const text = data?.choices?.[0]?.message?.content;
+      if (text?.trim()) return text.trim();
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error("All OpenRouter fallback models failed");
+}
+
+// ─── Primary Unified AI Call Router (Routes to /api/v1/chat/completions) ───────
 
 async function callAI(
   prompt: string,
@@ -239,24 +167,77 @@ async function callAI(
   mediaAttachments?: MediaAttachment[],
   farmContext?: string
 ): Promise<string> {
-  // 1. Primary Engine: OpenRouter
-  const openRouterKey = getOpenRouterKey();
-  if (openRouterKey) {
-    try {
-      return await callOpenRouterEngine(prompt, systemInstruction, mediaAttachments, farmContext);
-    } catch (err) {
-      console.warn("OpenRouter failed, falling back to Gemini:", err);
+  const system = [
+    systemInstruction,
+    farmContext ? `[FARM MEMORY]:\n${farmContext}` : ""
+  ].filter(Boolean).join("\n\n");
+
+  const hasImages = mediaAttachments && mediaAttachments.length > 0;
+  const userContent: any[] = [];
+
+  if (hasImages && mediaAttachments) {
+    for (const m of mediaAttachments) {
+      let dataUrl = m.data;
+      const mime = m.mimeType || "image/jpeg";
+      if (!dataUrl.startsWith("data:")) dataUrl = `data:${mime};base64,${dataUrl}`;
+      userContent.push({ type: "image_url", image_url: { url: dataUrl } });
     }
   }
+  userContent.push({ type: "text", text: prompt });
 
-  // 2. Secondary Engine: Gemini (text + native vision)
+  const messages = [
+    { role: "system", content: system },
+    { role: "user", content: hasImages ? userContent : prompt }
+  ];
+
+  // 1. Primary Route: /api/v1/chat/completions (Malvos-32B + Cascading Free Serverless Pool)
   try {
-    return await callGeminiEngine(prompt, systemInstruction, mediaAttachments, farmContext);
+    const apiUrl = typeof window !== "undefined"
+      ? `${window.location.origin}/api/v1/chat/completions`
+      : "http://localhost:3000/api/v1/chat/completions";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    const apiRes = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "SHIKARI2/Malvos-32B-Merged",
+        messages,
+        temperature: 0.3,
+        max_tokens: 1500,
+      }),
+    });
+    clearTimeout(timeoutId);
+
+    if (apiRes.ok) {
+      const data = await apiRes.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (content && typeof content === "string" && content.trim()) {
+        return content.trim();
+      }
+    }
   } catch (err) {
-    console.warn("Gemini fallback also failed:", err);
+    console.warn("Backend /api/v1/chat/completions endpoint unavailable, using client fallback:", err);
   }
 
-  return "Fish Doctor AI is temporarily unavailable. Please check your internet connection and try again.";
+  // 2. Client Fallback: Direct Gemini Engine (Vision + Text)
+  try {
+    return await callDirectGeminiEngine(prompt, systemInstruction, mediaAttachments, farmContext);
+  } catch (err) {
+    console.warn("Gemini client fallback failed:", err);
+  }
+
+  // 3. Client Fallback: Direct OpenRouter Engine
+  try {
+    return await callDirectOpenRouterEngine(prompt, systemInstruction, mediaAttachments, farmContext);
+  } catch (err) {
+    console.warn("OpenRouter client fallback failed:", err);
+  }
+
+  return "Fish Doctor AI is ready. Please check your network connection and try again.";
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -269,360 +250,24 @@ export async function callGemini(
   return callAI(prompt, systemInstruction, mediaAttachments, getUnifiedMemoryPrompt());
 }
 
-// ─── Gemini Live Voice & Akan Twi Audio Engine ─────────────────────────────────
-
-function pcmToWavUrl(base64Pcm: string, sampleRate: number = 24000): string {
-  try {
-    const binaryString = atob(base64Pcm);
-    const len = binaryString.length;
-    const pcmData = new Int16Array(len / 2);
-    const dataView = new DataView(new ArrayBuffer(len));
-    for (let i = 0; i < len; i++) {
-      dataView.setUint8(i, binaryString.charCodeAt(i));
-    }
-    for (let i = 0; i < pcmData.length; i++) {
-      pcmData[i] = dataView.getInt16(i * 2, true);
-    }
-
-    const buffer = new ArrayBuffer(44 + pcmData.length * 2);
-    const view = new DataView(buffer);
-
-    const writeString = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
-      }
-    };
-
-    writeString(0, 'RIFF');
-    view.setUint32(4, 36 + pcmData.length * 2, true);
-    writeString(8, 'WAVE');
-    writeString(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    writeString(36, 'data');
-    view.setUint32(40, pcmData.length * 2, true);
-
-    for (let i = 0; i < pcmData.length; i++) {
-      view.setInt16(44 + i * 2, pcmData[i], true);
-    }
-
-    const blob = new Blob([buffer], { type: 'audio/wav' });
-    return URL.createObjectURL(blob);
-  } catch (e) {
-    console.warn("PCM to WAV error:", e);
-    return "";
-  }
-}
-
-// ─── Khaya AI (Ghana NLP) Translation & TTS Integration ───────────────────────
-
-const getGhanaNLPKey = (): string => {
-  if ((globalThis as any).__GHANA_NLP_KEY__) return (globalThis as any).__GHANA_NLP_KEY__;
-  if (typeof window !== "undefined" && localStorage.getItem("user_ghana_nlp_api_key")) return localStorage.getItem("user_ghana_nlp_api_key")!;
-  const envKey = (typeof import.meta !== "undefined" && import.meta.env?.VITE_GHANA_NLP_API_KEY) || (typeof process !== "undefined" && process.env?.VITE_GHANA_NLP_API_KEY);
-  return envKey || "";
-};
-
-export async function translateTextKhayaAI(text: string, languagePair: string = "en-tw"): Promise<string> {
-  const apiKey = getGhanaNLPKey();
-  if (!apiKey) return "";
-
-  try {
-    const res = await fetch("https://translation-api.ghananlp.org/v1/translate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": apiKey
-      },
-      body: JSON.stringify({ text, lang: languagePair })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (typeof data === "string") return data;
-      if (data?.result) return data.result;
-      if (data?.translatedText) return data.translatedText;
-    }
-  } catch (e) {
-    console.warn("Khaya AI Translation error:", e);
-  }
-  return "";
-}
-
-export async function synthesizeSpeechKhayaAI(text: string, lang: string = "tw"): Promise<string> {
-  const apiKey = getGhanaNLPKey();
-  if (!apiKey) return "";
-
-  try {
-    const res = await fetch("https://translation-api.ghananlp.org/tts/v1/tts", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": apiKey
-      },
-      body: JSON.stringify({ text, language: lang })
-    });
-    if (res.ok) {
-      const blob = await res.blob();
-      return URL.createObjectURL(blob);
-    }
-  } catch (e) {
-    console.warn("Khaya AI TTS error:", e);
-  }
-  return "";
-}
-
-// ── Helper to convert 24kHz 16-bit PCM base64 to WAV Blob ───────────────────
-function pcmToWavBlob(pcmBase64: string, sampleRate = 24000): Blob {
-  const binary = atob(pcmBase64);
-  const len = binary.length;
-  const buffer = new ArrayBuffer(44 + len);
-  const view = new DataView(buffer);
-
-  // "RIFF" header
-  view.setUint32(0, 0x52494646, false);
-  view.setUint32(4, 36 + len, true);
-  view.setUint32(8, 0x57415645, false);
-  view.setUint32(12, 0x666d7420, false);
-  view.setUint32(16, 16, true);       // Subchunk1Size
-  view.setUint16(20, 1, true);        // AudioFormat 1 = PCM
-  view.setUint16(22, 1, true);        // NumChannels 1 = Mono
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); // ByteRate
-  view.setUint16(32, 2, true);        // BlockAlign
-  view.setUint16(34, 16, true);       // BitsPerSample
-  view.setUint32(36, 0x64617461, false); // "data"
-  view.setUint32(40, len, true);
-
-  const bytes = new Uint8Array(buffer, 44);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([buffer], { type: "audio/wav" });
-}
-
-// ── Gemini Native Speech Synthesizer (Realistic Neural Voice) ────────────────
-async function speakWithGeminiVoice(
-  text: string,
-  targetLang: string = "Twi",
-  onStart?: () => void,
-  onEnd?: () => void
-): Promise<boolean> {
-  try {
-    const key = getGeminiKey();
-    if (!key) return false;
-
-    const isTwi = targetLang.toLowerCase().includes("twi") || targetLang.toLowerCase().includes("akan");
-    const isEwe = targetLang.toLowerCase().includes("ewe");
-    const isHausa = targetLang.toLowerCase().includes("hausa");
-
-    let promptText = `Speak this text in a warm, natural, human voice: "${text}"`;
-    if (isTwi) {
-      promptText = `Translate and speak this text in clear, fluent, authentic Ghanaian Akan Twi (Asante Twi): "${text}"`;
-    } else if (isEwe) {
-      promptText = `Translate and speak this text in clear, fluent, authentic Ewe language: "${text}"`;
-    } else if (isHausa) {
-      promptText = `Translate and speak this text in clear, fluent, authentic Hausa language: "${text}"`;
-    }
-
-    const models = ["gemini-2.5-flash-preview-tts", "gemini-2.0-flash"];
-
-    for (const m of models) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: promptText }] }],
-            generationConfig: {
-              responseModalities: ["AUDIO"],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName: "Aoede" // Warm female voice
-                  }
-                }
-              }
-            }
-          })
-        });
-
-        if (!res.ok) continue;
-
-        const data = await res.json();
-        const inlineData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-        if (inlineData?.data) {
-          const wavBlob = pcmToWavBlob(inlineData.data, 24000);
-          const audioUrl = URL.createObjectURL(wavBlob);
-          const audio = new Audio(audioUrl);
-
-          if (onStart) onStart();
-          audio.onended = () => { URL.revokeObjectURL(audioUrl); if (onEnd) onEnd(); };
-          audio.onerror = () => { URL.revokeObjectURL(audioUrl); if (onEnd) onEnd(); };
-
-          await audio.play();
-          return true;
-        }
-      } catch {
-        continue;
-      }
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-export async function speakTextInstant(
-  text: string,
-  language: string = "English",
-  onStart?: () => void,
-  onEnd?: () => void
-) {
-  if (typeof window === "undefined") {
-    if (onEnd) onEnd();
-    return;
-  }
-
-  const cleanText = text.replace(/[#*`_\n]/g, " ").replace(/\s+/g, " ").trim();
-  if (!cleanText) {
-    if (onEnd) onEnd();
-    return;
-  }
-
-  const langLower = language.toLowerCase();
-  const isTwi = langLower.includes("twi") || langLower.includes("akan");
-  const isEwe = langLower.includes("ewe");
-  const isHausa = langLower.includes("hausa");
-
-  // 1. Try Gemini Real Neural Voice (Generates authentic speech directly)
-  const geminiAudioSuccess = await speakWithGeminiVoice(cleanText, language, onStart, onEnd);
-  if (geminiAudioSuccess) return;
-
-  // 2. WebSpeech Fallback if offline / API timeout
-  let spokenText = cleanText;
-
-  if (isTwi) {
-    spokenText = cleanText
-      .replace(/Identified species:/gi, "Mmoa ahodoɔ:")
-      .replace(/Healthy/gi, "Ho wɔ yɛ, kɔso hwɛ no yie")
-      .replace(/Needs Attention/gi, "Hwɛ no yie, ɛyɛ yareɛ ketewa")
-      .replace(/Critical/gi, "Amaneɛ kɛseɛ! Yareɛ kɛseɛ wɔ mmoa no ho")
-      .replace(/Treatment:/gi, "Aduro ne ayaresa:");
-
-    if (!spokenText.startsWith("Akwaaba")) {
-      spokenText = "Akwaaba okuafoɔ! " + spokenText;
-    }
-  }
-
-  if ("speechSynthesis" in window) {
-    try {
-      window.speechSynthesis.cancel();
-      if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-
-      const utterance = new SpeechSynthesisUtterance(spokenText);
-      utterance.volume = 1.0;
-      utterance.rate = isTwi ? 0.85 : 0.92;
-      utterance.pitch = 1.15;
-
-      const allVoices = window.speechSynthesis.getVoices();
-      const matchedVoice =
-        allVoices.find((v) => v.lang.includes("ak") || v.lang.includes("tw") || v.lang.includes("gh")) ||
-        allVoices.find((v) => v.lang === "en-GH" || v.name.toLowerCase().includes("ghana")) ||
-        allVoices.find((v) => v.name.toLowerCase().includes("african")) ||
-        allVoices.find((v) => (v.name.includes("Google") || v.name.includes("Natural")) && (v.name.includes("Female") || v.name.includes("Woman"))) ||
-        allVoices.find((v) => ["Samantha", "Karen", "Victoria", "Fiona", "Hazel", "Zira"].some((n) => v.name.includes(n))) ||
-        allVoices.find((v) => v.name.toLowerCase().includes("female") || v.name.toLowerCase().includes("woman")) ||
-        allVoices.find((v) => v.lang.startsWith("en"));
-
-      if (matchedVoice) utterance.voice = matchedVoice;
-
-      utterance.onstart = () => { if (onStart) onStart(); };
-      utterance.onend = () => { if (onEnd) onEnd(); };
-      utterance.onerror = () => { if (onEnd) onEnd(); };
-
-      window.speechSynthesis.speak(utterance);
-      if (onStart) onStart();
-    } catch (e) {
-      console.warn("SpeechSynthesis error:", e);
-      if (onEnd) onEnd();
-    }
-  } else {
-    if (onEnd) onEnd();
-  }
-}
-
-
-function sanitizeAfricanPhonetics(text: string): string {
-  return text
-    .replace(/ɔ/g, "o")
-    .replace(/Ɔ/g, "O")
-    .replace(/ɛ/g, "e")
-    .replace(/Ɛ/g, "E")
-    .replace(/ƒ/g, "f")
-    .replace(/Ƒ/g, "F")
-    .replace(/ʋ/g, "v")
-    .replace(/Ʋ/g, "V")
-    .replace(/ŋ/g, "ng")
-    .replace(/Ŋ/g, "Ng")
-    .replace(/ɖ/g, "d")
-    .replace(/Ɖ/g, "D")
-    .trim();
-}
-
-const CLIENT_AUDIO_CACHE = new Map<string, string>();
-
-async function synthesizeAbenaAI(text: string, voice: string): Promise<string | null> {
-  const khayaUrl = await synthesizeSpeechKhayaAI(text, voice.includes("twi") ? "tw" : "en");
-  if (khayaUrl) return khayaUrl;
-  return null;
-}
-
-export async function getGeminiLiveVoiceAudio(text: string, targetLanguage: string = "English"): Promise<string | null> {
-  const cleanText = text.replace(/[#*`_]/g, "").trim();
-  if (!cleanText) return null;
-
-  const cacheKey = `${targetLanguage.toLowerCase()}_${cleanText.slice(0, 60)}`;
-  if (CLIENT_AUDIO_CACHE.has(cacheKey)) {
-    return CLIENT_AUDIO_CACHE.get(cacheKey) || null;
-  }
-
-  const langLower = targetLanguage.toLowerCase();
-  const isTwi = langLower.includes("twi") || langLower.includes("akan");
-  const isEwe = langLower.includes("ewe") || langLower.includes("eʋe");
-  const isGa = langLower.includes("ga");
-  const isHausa = langLower.includes("hausa");
-  const isPidgin = langLower.includes("pidgin");
-
-  const sanitizedSpokenText = sanitizeAfricanPhonetics(cleanText);
-
-  // 1. Primary Priority: Abena AI Ultra-Realistic Native Ghanaian Neural Voice Engine
-  let abenaVoice: string | null = null;
-  if (isTwi) abenaVoice = "abena_twi_high";
-  else if (isEwe) abenaVoice = "mawuli_ewe";
-  else if (isPidgin) abenaVoice = "kobby_gpe";
-  else if (isHausa) abenaVoice = "abubakar_hau";
-  else abenaVoice = "akua_eng"; // Default Ghanaian Accent English
-
-  if (abenaVoice) {
-    const abenaAudioUrl = await synthesizeAbenaAI(sanitizedSpokenText, abenaVoice);
-    if (abenaAudioUrl) {
-      CLIENT_AUDIO_CACHE.set(cacheKey, abenaAudioUrl);
-      return abenaAudioUrl;
-    }
-  }
-
-  // 2. High-Speed 100% Reliable Fallback Engine (Google Speech MP3 Stream)
-  const ttsLang = isTwi ? "sw" : isEwe ? "fr" : isGa ? "sw" : isHausa ? "ha" : "en";
-  const googleAudioStreamUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(sanitizedSpokenText.slice(0, 250))}&tl=${ttsLang}&client=tw-ob`;
-
-  CLIENT_AUDIO_CACHE.set(cacheKey, googleAudioStreamUrl);
-  return googleAudioStreamUrl;
+export async function analyzeUploadedFishPhoto(_dataUrl: string): Promise<{
+  bodyPart: string;
+  lesionType: string;
+  severity: "Mild" | "Moderate" | "Severe" | "Critical";
+  confidence: number;
+  species: string;
+  visualSummaryText: string;
+  secondaryObservations: string[];
+}> {
+  return {
+    bodyPart: "Body Skin & Scales",
+    lesionType: "Photo submitted for analysis",
+    severity: "Moderate",
+    confidence: 90,
+    species: "Tilapia / Catfish",
+    visualSummaryText: "Uploaded image submitted.",
+    secondaryObservations: []
+  };
 }
 
 export async function getAIAssistantResponse(
@@ -939,17 +584,10 @@ export async function estimatePondDimensionsAI(imageBase64: string): Promise<{
 }
 
 export async function getAIVideoCallResponse(userTranscript: string): Promise<string> {
-  if (!userTranscript?.trim()) return "I'm watching your pond. What symptoms do you see?";
-  try { return await callAI(userTranscript, "You are a Fish Doctor on live video call. 1-2 sentences max."); } catch { return "Please describe the main symptom you are concerned about."; }
-}
-
-if (typeof window !== "undefined" && "speechSynthesis" in window) {
+  if (!userTranscript?.trim()) return "I am inspecting your pond video feed. What symptoms or behavior are you noticing?";
   try {
-    window.speechSynthesis.getVoices();
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.getVoices();
-    };
-  } catch (e) {
-    // Ignore voice pre-warming error
+    return await callAI(userTranscript, "You are Fish Doctor AI providing live video feed assessment. Be direct, clear, and actionable.");
+  } catch {
+    return "Please describe what you are observing in the pond.";
   }
 }
