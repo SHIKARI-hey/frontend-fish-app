@@ -1,12 +1,11 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { 
-  ArrowLeft, ShieldAlert, Key, Users, Eye, EyeOff, Trash2, Search, 
+  ShieldAlert, Key, Users, Eye, EyeOff, Trash2, Search, 
   Download, CheckCircle2, XCircle, RefreshCw, Lock, LogOut, Database,
   Copy, Check, ExternalLink, HelpCircle, Mail, Sparkles
 } from "lucide-react";
-import { BottomNav, PhoneFrame } from "@/components/BottomNav";
-import { getRegisteredAccounts, deleteAccountById } from "@/lib/userAccounts";
+
 import { 
   fetchAllUserLogins, 
   getSupabaseConfig, 
@@ -185,17 +184,15 @@ create policy "Allow client select" on user_logins for select using (true);`;
   // ── Password Gate Screen ──
   if (!isAuthenticated) {
     return (
-      <PhoneFrame>
-        <header className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-gray-200 bg-white">
-          <div className="flex items-center gap-3">
-            <Link to="/home" className="p-1 hover:bg-gray-100 rounded-full">
-              <ArrowLeft className="w-5.5 h-5.5 text-gray-900" />
-            </Link>
-            <h1 className="text-[19px] font-extrabold text-gray-900 leading-tight">Admin Gate</h1>
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <header className="px-5 py-4 flex items-center gap-3 border-b border-gray-200 bg-white shadow-xs">
+          <div className="w-9 h-9 rounded-2xl bg-[#0F6236] text-white flex items-center justify-center">
+            <ShieldAlert className="w-5 h-5" />
           </div>
+          <h1 className="text-lg font-extrabold text-gray-900">Fish Doctor — Admin</h1>
         </header>
 
-        <div className="p-6 flex-1 flex flex-col justify-center items-center text-center">
+        <div className="flex-1 flex flex-col justify-center items-center p-6 text-center">
           <div className="w-16 h-16 rounded-3xl bg-[#0F6236] text-white flex items-center justify-center shadow-xl shadow-[#0F6236]/30 mb-4">
             <Lock className="w-8 h-8" />
           </div>
@@ -205,7 +202,7 @@ create policy "Allow client select" on user_logins for select using (true);`;
             Enter your 4-digit PIN to inspect all registered Gmail accounts and manage database routing.
           </p>
 
-          <form onSubmit={handlePasswordSubmit} className="w-full max-w-[300px] space-y-4">
+          <form onSubmit={handlePasswordSubmit} className="w-full max-w-[340px] space-y-4">
             <input
               type="password"
               maxLength={10}
@@ -213,7 +210,7 @@ create policy "Allow client select" on user_logins for select using (true);`;
               autoFocus
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="Enter PIN (1222)"
+              placeholder="Enter PIN"
               className="w-full h-13 rounded-2xl border border-gray-300 text-center text-lg font-mono font-extrabold text-gray-900 bg-white shadow-xs outline-none focus:ring-2 focus:ring-[#0F6236]"
             />
 
@@ -231,24 +228,20 @@ create policy "Allow client select" on user_logins for select using (true);`;
             </button>
           </form>
         </div>
-
-        <BottomNav />
-      </PhoneFrame>
+      </div>
     );
   }
 
   return (
-    <PhoneFrame>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Top Bar */}
-      <header className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-gray-200 bg-white sticky top-0 z-30 shadow-xs">
+      <header className="px-5 py-4 flex items-center justify-between border-b border-gray-200 bg-white sticky top-0 z-30 shadow-xs">
         <div className="flex items-center gap-3">
-          <Link to="/home" className="p-1 hover:bg-gray-100 rounded-full">
-            <ArrowLeft className="w-5.5 h-5.5 text-gray-900" />
-          </Link>
+          <div className="w-9 h-9 rounded-2xl bg-[#0F6236] text-white flex items-center justify-center">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
           <div>
-            <h1 className="text-[19px] font-extrabold text-gray-900 leading-tight flex items-center gap-1.5">
-              <ShieldAlert className="w-5 h-5 text-[#0F6236]" /> Admin Console
-            </h1>
+            <h1 className="text-lg font-extrabold text-gray-900 leading-tight">Admin Console</h1>
             <div className="text-xs font-bold text-gray-500">Live User Accounts & Supabase</div>
           </div>
         </div>
@@ -257,7 +250,7 @@ create policy "Allow client select" on user_logins for select using (true);`;
         </button>
       </header>
 
-      <div className="p-5 space-y-5 pb-20">
+      <div className="p-5 space-y-5 pb-20 max-w-4xl mx-auto w-full">
         
         {/* ─── SUPABASE INTEGRATION & SETUP PANEL ─── */}
         <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-md space-y-4">
@@ -480,7 +473,6 @@ create policy "Allow client select" on user_logins for select using (true);`}</p
 
       </div>
 
-      <BottomNav />
-    </PhoneFrame>
+    </div>
   );
 }

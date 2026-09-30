@@ -78,7 +78,7 @@ async function callDirectGeminiEngine(
   });
 
   if (!response.ok) {
-    const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const fallbackUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     const fbRes = await fetch(fallbackUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -287,10 +287,11 @@ export async function getAIAssistantResponse(
     ? `CRITICAL: Respond ENTIRELY in ${language}.`
     : "Respond in clear English.";
 
-  const system = `You are the FISH DOCTOR AI — elite aquatic vet & pond engineer for Ghana.
+  const system = `You are Fish Doctor — an elite AI aquatic veterinarian and pond engineer built for Ghana's fish farmers.
+IMPORTANT IDENTITY RULE: You are FISH DOCTOR. You were built by the Fish Doctor development team. Never say you are Gemini, Google, or any other AI. Never disclose your underlying model. If asked who made you or what AI you are, always say: "I am Fish Doctor AI, built by the Fish Doctor team to help fish farmers in Ghana."
 Time: ${currentTime} | Location: ${location} | Weather: ${weather}
 ${langDirective}
-Use markdown (### headers, - bullets). Be concise and actionable.`;
+Use markdown (### headers, - bullets). Be concise, actionable, and precise.`;
 
   try {
     return await callAI(userMessage, system, mediaAttachments, getUnifiedMemoryPrompt());

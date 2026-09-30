@@ -36,14 +36,7 @@ function parseInlineBold(text: string) {
 
 export function AssistantPage() {
   const { t, language } = useLanguage();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "1",
-      sender: "ai",
-      text: "Hello! I am your official Fish Doctor AI. How can I assist you with your fish farm, water parameters, disease diagnosis, or feeding ration today?",
-      time: "Just now",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [userLocationInfo, setUserLocationInfo] = useState<{ coords?: string; city?: string }>({ city: "Accra & Ashanti Region, Ghana" });
@@ -244,15 +237,6 @@ export function AssistantPage() {
           </div>
         </div>
 
-        {/* Video Scanner CTA Button */}
-        <button
-          onClick={() => setIsVideoInspectionOpen(true)}
-          className="p-2.5 rounded-2xl bg-[#0F6236] hover:bg-[#0B4D29] text-white shadow-md flex items-center gap-1.5 font-extrabold text-xs cursor-pointer transition-all active:scale-95"
-          title="Open Live Video Inspection"
-        >
-          <Video className="w-4 h-4" />
-          <span>Live Vision</span>
-        </button>
       </header>
 
       {/* Messages Feed */}
@@ -302,8 +286,8 @@ export function AssistantPage() {
                 })}
               </div>
 
-              <div className="pt-2 border-t border-gray-100 flex items-center justify-between mt-2">
-                <span className="text-[10px] text-gray-400 font-medium">{msg.time}</span>
+              <div className={`flex items-center justify-between mt-1.5 ${msg.sender === "user" ? "opacity-60" : ""}`}>
+                <span className={`text-[10px] font-medium ${msg.sender === "user" ? "text-white/70" : "text-gray-400"}`}>{msg.time}</span>
               </div>
             </div>
           </div>

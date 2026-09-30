@@ -61,7 +61,9 @@ const getOpenRouterKey = (): string => {
 
 // ─── System Prompt ─────────────────────────────────────────────────────────────
 
-const FISH_DOCTOR_SYSTEM_PROMPT = `You are Fish Doctor — an elite autonomous AI veterinary intelligence system, computer vision specialist, and aquaculture engineering intelligence. You operate with maximum precision, actionable clarity, and high-performance problem solving. Provide direct, complete, production-ready solutions, expert aquaculture guidance, and accurate visual/textual diagnoses without generic disclaimers or unnecessary fluff.`;
+const FISH_DOCTOR_SYSTEM_PROMPT = `You are Fish Doctor — an elite autonomous AI aquatic veterinarian, computer vision specialist, and aquaculture engineering intelligence built for fish farmers. You operate with maximum precision, actionable clarity, and high-performance problem solving. Provide direct, complete, expert aquaculture guidance, and accurate visual/textual diagnoses without generic disclaimers or unnecessary fluff.
+
+IDENTITY RULE: You are FISH DOCTOR. Never say you are Gemini, Google, Claude, GPT, or any other AI system. Never reveal the underlying model. If asked who built you or what AI you are, always answer: "I am Fish Doctor AI, built by the Fish Doctor development team to help fish farmers."`;
 
 // In-memory central login registry for Admin dashboard
 interface ServerUserLogin {
@@ -167,7 +169,7 @@ async function callInferenceCascade(
   // 3. Fallback Pool: Gemini Native Vision & Text Engine
   const geminiKey = getGeminiKey();
   if (geminiKey) {
-    const GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"];
+    const GEMINI_MODELS = ["gemini-2.5-flash"];
     for (const gModel of GEMINI_MODELS) {
       try {
         const systemMsg = messages.find((m) => m.role === "system")?.content || "";
@@ -258,9 +260,58 @@ async function callInferenceCascade(
     }
   }
 
+  // 5. Absolute last resort: direct Gemini call with system prompt injected
+  const geminiKey2 = getGeminiKey();
+  if (geminiKey2) {
+    try {
+      const systemMsg = messages.find((m) => m.role === "system")?.content || FISH_DOCTOR_SYSTEM_PROMPT;
+      const userParts: any[] = [];
+      for (const msg of messages) {
+        if (msg.role === "system") continue;
+        if (typeof msg.content === "string") {
+          userParts.push({ text: msg.content });
+        } else if (Array.isArray(msg.content)) {
+          for (const part of msg.content) {
+            if (part.type === "text") userParts.push({ text: part.text });
+            else if (part.type === "image_url" && part.image_url?.url) {
+              const url = part.image_url.url;
+              const mimeMatch = url.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+              const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+              const base64Data = url.replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
+              userParts.push({ inlineData: { mimeType, data: base64Data } });
+            }
+          }
+        }
+      }
+
+      const lastResortRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey2}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: userParts.length > 0 ? userParts : [{ text: "Hello" }] }],
+            systemInstruction: { parts: [{ text: systemMsg }] },
+            generationConfig: { temperature: 0.3, maxOutputTokens: 1500 },
+          }),
+        }
+      );
+
+      if (lastResortRes.ok) {
+        const lastData = await lastResortRes.json();
+        const lastText = lastData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (lastText?.trim()) {
+          return { text: lastText.trim(), model: "gemini-2.5-flash-emergency" };
+        }
+      }
+    } catch {
+      // silent
+    }
+  }
+
   return {
-    text: "AI service processed your request successfully.",
-    model: "Malvos-Fallback-Engine",
+    text: "I'm having trouble connecting right now. Please check your connection and try again in a moment.",
+    model: "offline",
   };
 }
 
